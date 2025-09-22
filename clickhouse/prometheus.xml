@@ -1,0 +1,15 @@
+<clickhouse>
+    <prometheus>
+        <port>9363</port>
+        <handlers>
+            <remote_read>
+                <url>/read</url>
+                <handler>
+                    <type>remote_read</type>
+                    <database>otel_metrics</database>
+                    <table>otel_metrics_histogram</table>
+                </handler>
+            </remote_read>
+        </handlers>
+    </prometheus>
+</clickhouse>
