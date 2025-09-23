@@ -1,0 +1,12 @@
+<clickhouse>
+    <users>
+        <otel_user>
+            <password>otel_pass</password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+        </otel_user>
+    </users>
+</clickhouse>
