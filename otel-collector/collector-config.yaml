@@ -8,30 +8,19 @@ receivers:
 
 processors:
   batch:
-  
-# processors:
-#   metrictransform:
-#     transforms:
-#       - include: ".*"
-#         action: update_histogram
-#         min_bucket: -Inf
-#         max_bucket: +Inf
 
 exporters:
-  debug:
-    verbosity: detailed
-  
-  # clickhouse:
-  #   endpoint: "http://clickhouse-server:8123"
-  #   database: "otel_metrics"
-  #   username: "otel_user"
-  #   password: "otel_pass"
-  #   async_insert: true
-  #   create_schema: true
+  clickhouse:
+    endpoint: "http://clickhouse-server:8123"
+    database: "otel_metrics"
+    username: "otel_user"
+    password: "otel_pass"
+    async_insert: true
+    create_schema: true
 
 service:
   pipelines:
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [clickhouse]
