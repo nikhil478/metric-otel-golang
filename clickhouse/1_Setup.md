@@ -8,4 +8,7 @@ docker exec -it clickhouse-server clickhouse-client --query "SHOW TABLES FROM ot
 
 docker exec -it clickhouse-server clickhouse-client --query "SHOW CREATE TABLE otel_metrics.otel_metrics_histogram;"
 
+docker exec -it clickhouse-server clickhouse-client --query "SELECT * FROM otel_metrics.otel_metrics_histogram LIMIT 5;"
+
+
 docker exec -it clickhouse-server clickhouse-client --query "SELECT * FROM otel_metrics.otel_metrics_histogram;"
