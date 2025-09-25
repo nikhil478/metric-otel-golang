@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  clickhouse-server:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-server
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+      - "9363:9363"
+    volumes:
+      - ./clickhouse/otel-user.xml:/etc/clickhouse-server/users.d/otel-user.xml:ro
+      - ./clickhouse/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml
+    networks:
+      - otel-network
+
+  ch-otel-prom-proxy:
+    image: ch-otel-prom-proxy:latest
+    container_name: ch-otel-prom-proxy
+    ports:
+      - "9364:9364"
+    environment:
+      CLICKHOUSE_HOST: clickhouse-server
+      CLICKHOUSE_PORT: 9000
+    depends_on:
+      clickhouse-server:
+        condition: service_started
+    networks:
+      - otel-network
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./otel-collector/collector-config.yaml:/etc/otelcol/config.yaml
+    networks:
+      - otel-network
+    depends_on:
+      clickhouse-server:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - otel-network
+    depends_on:
+      ch-otel-prom-proxy:
+        condition: service_started
+
+networks:
+  otel-network:
+    driver: bridge

@@ -37,7 +37,7 @@ func main() {
 	otel.SetMeterProvider(meterProvider)
 
 	histogram, err := meter.Float64Histogram(
-		"task.duration",
+		"task_duration",
 		apimetric.WithDescription("The duration of task execution."),
 		apimetric.WithUnit("s"),
 		apimetric.WithExplicitBucketBoundaries(

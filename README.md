@@ -1,3 +1,7 @@
 # metric-otel-golang
 
-docker network create otel-network
+docker-compose up -d
+
+docker-compose down
+
+go run main.go
