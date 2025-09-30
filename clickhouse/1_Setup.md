@@ -10,5 +10,34 @@ docker exec -it clickhouse-server clickhouse-client --query "SHOW CREATE TABLE o
 
 docker exec -it clickhouse-server clickhouse-client --query "SELECT * FROM otel_metrics.otel_metrics_histogram LIMIT 5;"
 
+docker exec -it clickhouse-server clickhouse-client --query "SELECT min(TimeUnix), max(TimeUnix) FROM otel_metrics.otel_metrics_histogram;"
+
+
+docker exec -it clickhouse-server clickhouse-client --query "SELECT * FROM otel_metrics.otel_metrics_histogram WHERE TimeUnix >= '2025-09-29 22:04:00' AND TimeUnix <= '2025-09-29 22:06:30' AND MetricName = 'task_duration' LIMIT 10;"
+
+
+docker exec -it clickhouse-server clickhouse-client --query "SELECT
+    MetricName,
+    Attributes,
+    TimeUnix,
+    Sum,
+    Count,
+    BucketCounts,
+    ExplicitBounds
+FROM otel_metrics.otel_metrics_histogram
+WHERE TimeUnix >= toDateTime64('2025-09-29 21:30:00', 9)
+  AND TimeUnix <= toDateTime64('2025-09-29 22:30:00', 9)
+  AND MetricName = 'task_duration'
+LIMIT 10;"
+
+
+
+
+
+
+
+
+
+
 
 docker exec -it clickhouse-server clickhouse-client --query "SELECT * FROM otel_metrics.otel_metrics_histogram;"

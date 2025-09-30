@@ -11,6 +11,7 @@ services:
     volumes:
       - ./clickhouse/otel-user.xml:/etc/clickhouse-server/users.d/otel-user.xml:ro
       - ./clickhouse/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml
+      - clickhouse-data:/var/lib/clickhouse
     networks:
       - otel-network
 
@@ -55,7 +56,9 @@ services:
     depends_on:
       ch-otel-prom-proxy:
         condition: service_started
-
+volumes:
+  clickhouse-data:
+  
 networks:
   otel-network:
     driver: bridge
