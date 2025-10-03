@@ -125,7 +125,6 @@ func handleRemoteRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func processQuery(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, error) {
-
 	var metricNameEq string
 	labelEq := map[string]string{}
 	for _, m := range q.Matchers {
@@ -138,32 +137,35 @@ func processQuery(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, e
 		}
 	}
 
+	// Convert start/end to seconds
 	startMs := q.StartTimestampMs
 	endMs := q.EndTimestampMs
 	if endMs == 0 {
 		endMs = time.Now().UnixNano() / 1e6
 	}
-
 	startSec := float64(startMs) / 1000.0
 	endSec := float64(endMs) / 1000.0
 
+	// Determine wantType and baseMetric
 	wantType := ""
 	baseMetric := ""
 	if metricNameEq != "" {
-		if strings.HasSuffix(metricNameEq, "_bucket") {
+		switch {
+		case strings.HasSuffix(metricNameEq, "_bucket"):
 			wantType = "bucket"
 			baseMetric = strings.TrimSuffix(metricNameEq, "_bucket")
-		} else if strings.HasSuffix(metricNameEq, "_sum") {
+		case strings.HasSuffix(metricNameEq, "_sum"):
 			wantType = "sum"
 			baseMetric = strings.TrimSuffix(metricNameEq, "_sum")
-		} else if strings.HasSuffix(metricNameEq, "_count") {
+		case strings.HasSuffix(metricNameEq, "_count"):
 			wantType = "count"
 			baseMetric = strings.TrimSuffix(metricNameEq, "_count")
-		} else {
+		default:
 			baseMetric = metricNameEq
 		}
 	}
 
+	// Build WHERE clause and arguments
 	where := []string{"TimeUnix >= toDateTime64(?,9) AND TimeUnix <= toDateTime64(?,9)"}
 	args := []interface{}{startSec, endSec}
 
@@ -226,73 +228,51 @@ LIMIT %d
 			baseLabels = append(baseLabels, prompb.Label{Name: k, Value: v})
 		}
 
+		// Buckets (including +Inf)
 		cum := uint64(0)
 		for i := 0; i < len(bucketCounts); i++ {
 			cum += bucketCounts[i]
 
-			var leStr string
+			leStr := "+Inf"
 			if i < len(explicitBounds) {
 				leStr = strconv.FormatFloat(explicitBounds[i], 'g', -1, 64)
-			} else {
-				leStr = "+Inf"
-			}
-
-			if wantType == "bucket" && leFilter != "" && leFilter != leStr {
-				continue
 			}
 
 			if wantType == "" || wantType == "bucket" {
-				labels := []prompb.Label{
+				if leFilter != "" && leFilter != leStr {
+					continue
+				}
+				labels := append([]prompb.Label{
 					{Name: "__name__", Value: metricName + "_bucket"},
 					{Name: "le", Value: leStr},
-				}
-				labels = append(labels, baseLabels...)
+				}, baseLabels...)
 
-				ts := &prompb.TimeSeries{
+				out = append(out, &prompb.TimeSeries{
 					Labels:  labels,
 					Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: float64(cum)}},
-				}
-				out = append(out, ts)
+				})
 			}
 		}
 
-		log.Printf("query: %v ", out)
-
+		// Sum
 		if wantType == "" || wantType == "sum" {
-			labels := []prompb.Label{{Name: "__name__", Value: metricName + "_sum"}}
-			labels = append(labels, baseLabels...)
+			labels := append([]prompb.Label{{Name: "__name__", Value: metricName + "_sum"}}, baseLabels...)
 			out = append(out, &prompb.TimeSeries{
 				Labels:  labels,
 				Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: sum}},
 			})
 		}
 
-		log.Printf("query: %v ", out)
-
+		// Count
 		if wantType == "" || wantType == "count" {
-			labels := []prompb.Label{{Name: "__name__", Value: metricName + "_count"}}
-			labels = append(labels, baseLabels...)
+			labels := append([]prompb.Label{{Name: "__name__", Value: metricName + "_count"}}, baseLabels...)
 			out = append(out, &prompb.TimeSeries{
 				Labels:  labels,
 				Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: float64(count)}},
 			})
 		}
-
-		log.Printf("query: %v ", out)
-	}
-
-	if metricNameEq != "" {
-		filtered := []*prompb.TimeSeries{}
-		for _, ts := range out {
-			for _, l := range ts.Labels {
-				if l.Name == "__name__" && l.Value == metricNameEq {
-					filtered = append(filtered, ts)
-					break
-				}
-			}
-		}
-		out = filtered
 	}
 
 	return out, nil
 }
+
