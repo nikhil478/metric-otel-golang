@@ -221,10 +221,6 @@ LIMIT %d
 			continue
 		}
 
-		if len(bucketCounts) != len(explicitBounds) {
-			continue
-		}
-
 		baseLabels := []prompb.Label{}
 		for k, v := range attributes {
 			baseLabels = append(baseLabels, prompb.Label{Name: k, Value: v})
@@ -233,18 +229,25 @@ LIMIT %d
 		cum := uint64(0)
 		for i := 0; i < len(bucketCounts); i++ {
 			cum += bucketCounts[i]
-			leStr := strconv.FormatFloat(explicitBounds[i], 'g', -1, 64)
+
+			var leStr string
+			if i < len(explicitBounds) {
+				leStr = strconv.FormatFloat(explicitBounds[i], 'g', -1, 64)
+			} else {
+				leStr = "+Inf"
+			}
 
 			if wantType == "bucket" && leFilter != "" && leFilter != leStr {
 				continue
 			}
-			if wantType != "" && wantType != "bucket" {
-			} else {
+
+			if wantType == "" || wantType == "bucket" {
 				labels := []prompb.Label{
 					{Name: "__name__", Value: metricName + "_bucket"},
 					{Name: "le", Value: leStr},
 				}
 				labels = append(labels, baseLabels...)
+
 				ts := &prompb.TimeSeries{
 					Labels:  labels,
 					Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: float64(cum)}},
@@ -252,6 +255,8 @@ LIMIT %d
 				out = append(out, ts)
 			}
 		}
+
+		log.Printf("query: %v ", out)
 
 		if wantType == "" || wantType == "sum" {
 			labels := []prompb.Label{{Name: "__name__", Value: metricName + "_sum"}}
@@ -261,6 +266,9 @@ LIMIT %d
 				Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: sum}},
 			})
 		}
+
+		log.Printf("query: %v ", out)
+
 		if wantType == "" || wantType == "count" {
 			labels := []prompb.Label{{Name: "__name__", Value: metricName + "_count"}}
 			labels = append(labels, baseLabels...)
@@ -269,7 +277,10 @@ LIMIT %d
 				Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: float64(count)}},
 			})
 		}
+
+		log.Printf("query: %v ", out)
 	}
+
 	if metricNameEq != "" {
 		filtered := []*prompb.TimeSeries{}
 		for _, ts := range out {

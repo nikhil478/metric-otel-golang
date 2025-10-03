@@ -52,7 +52,7 @@ func main() {
 		time.Sleep(time.Second*3)
 		duration := time.Since(start)
 		histogram.Record(r.Context(), duration.Seconds())
-		histogram.Record(r.Context(), -duration.Seconds())
+		// histogram.Record(r.Context(), -duration.Seconds())
 	})
 
 	http.ListenAndServe(":8080", nil)
