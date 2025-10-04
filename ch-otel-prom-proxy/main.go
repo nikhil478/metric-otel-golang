@@ -24,7 +24,7 @@ var (
 	chDatabase   = envOr("CLICKHOUSE_DB", "otel_metrics")
 	chUser       = envOr("CLICKHOUSE_USER", "otel_user")
 	chPass       = envOr("CLICKHOUSE_PASS", "otel_pass")
-	chTable      = envOr("CLICKHOUSE_TABLE", "otel_metrics_histogram")
+	chTable      = envOr("CLICKHOUSE_TABLE", "otel_metrics_sum")
 	listenAddr   = envOr("PROXY_LISTEN", ":9364")
 	queryTimeout = envDurationOr("QUERY_TIMEOUT", 30*time.Second)
 	maxRows      = envIntOr("MAX_ROWS", 20000)
@@ -276,3 +276,6 @@ LIMIT %d
 	return out, nil
 }
 
+func processSumQuery(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, error) {
+	return nil, nil
+}
