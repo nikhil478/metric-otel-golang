@@ -100,7 +100,7 @@ func handleRemoteRead(w http.ResponseWriter, r *http.Request) {
 
 	resp := &prompb.ReadResponse{}
 	for _, q := range rr.Queries {
-		ts, err := processQuery(ctx, q)
+		ts, err := processQuerySum(ctx, q)
 		if err != nil {
 			log.Printf("processQuery error: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -124,7 +124,7 @@ func handleRemoteRead(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(enc)
 }
 
-func processQuery(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, error) {
+func ProcessQuery(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, error) {
 	var metricNameEq string
 	labelEq := map[string]string{}
 	for _, m := range q.Matchers {
@@ -276,6 +276,100 @@ LIMIT %d
 	return out, nil
 }
 
-func processSumQuery(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, error) {
-	return nil, nil
+func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, error) {
+	var metricNameEq string
+	labelEq := map[string]string{}
+
+	for _, m := range q.Matchers {
+		if m.Type == prompb.LabelMatcher_EQ {
+			if m.Name == "__name__" {
+				metricNameEq = m.Value
+			} else {
+				labelEq[m.Name] = m.Value
+			}
+		}
+	}
+
+	startMs := q.StartTimestampMs
+	endMs := q.EndTimestampMs
+	if endMs == 0 {
+		endMs = time.Now().UnixNano() / 1e6
+	}
+	startSec := float64(startMs) / 1000.0
+	endSec := float64(endMs) / 1000.0
+
+	baseMetric := ""
+	if metricNameEq != "" {
+		switch {
+		case strings.HasSuffix(metricNameEq, "_sum"):
+			baseMetric = strings.TrimSuffix(metricNameEq, "_sum")
+		default:
+			baseMetric = metricNameEq
+		}
+	}
+
+	// Build WHERE clause dynamically
+	where := []string{"TimeUnix >= toDateTime64(?,9) AND TimeUnix <= toDateTime64(?,9)"}
+	args := []interface{}{startSec, endSec}
+
+	if baseMetric != "" {
+		where = append(where, "MetricName = ?")
+		args = append(args, baseMetric)
+	}
+
+	// Apply label filters from Attributes
+	for k, v := range labelEq {
+		ek := strings.ReplaceAll(k, "'", "\\'")
+		where = append(where, fmt.Sprintf("Attributes['%s'] = ?", ek))
+		args = append(args, v)
+	}
+
+	whereClause := strings.Join(where, " AND ")
+
+	query := fmt.Sprintf(`
+SELECT
+  MetricName,
+  Attributes,
+  toUnixTimestamp64Nano(TimeUnix) AS ts_ns,
+  Value AS SumValue
+FROM %s.%s
+WHERE %s
+ORDER BY TimeUnix
+LIMIT %d
+`, chDatabase, chTable, whereClause, maxRows)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*prompb.TimeSeries
+
+	for rows.Next() {
+		var metricName string
+		var attributes map[string]string
+		var tsNS int64
+		var sumValue float64
+
+		if err := rows.Scan(&metricName, &attributes, &tsNS, &sumValue); err != nil {
+			log.Printf("scan error: %v", err)
+			continue
+		}
+
+		labels := []prompb.Label{{Name: "__name__", Value: metricName + "_sum"}}
+		for k, v := range attributes {
+			labels = append(labels, prompb.Label{Name: k, Value: v})
+		}
+
+		ts := &prompb.TimeSeries{
+			Labels:  labels,
+			Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: sumValue}},
+		}
+
+		out = append(out, ts)
+	}
+
+	return out, nil
 }
+
