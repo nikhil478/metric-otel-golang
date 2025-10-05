@@ -277,6 +277,8 @@ LIMIT %d
 }
 
 func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, error) {
+
+	log.Printf("prometheus query looks like %v", q)
 	var metricNameEq string
 	labelEq := map[string]string{}
 
@@ -338,11 +340,16 @@ ORDER BY TimeUnix
 LIMIT %d
 `, chDatabase, chTable, whereClause, maxRows)
 
+
+	log.Printf("query look like %v", query)
+
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse query: %w", err)
 	}
 	defer rows.Close()
+
+		
 
 	var out []*prompb.TimeSeries
 
@@ -356,6 +363,8 @@ LIMIT %d
 			log.Printf("scan error: %v", err)
 			continue
 		}
+
+		log.Printf("rows data look like metricName: %v, attributes: %v, tsNS: %v, sumValue: %v", metricName, attributes, tsNS, sumValue)
 
 		labels := []prompb.Label{{Name: "__name__", Value: metricName + "_sum"}}
 		for k, v := range attributes {
