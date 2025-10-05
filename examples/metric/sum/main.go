@@ -42,6 +42,12 @@ func main() {
 		apimetric.WithUnit("1"),
 	)
 
+	durationSum, _ := meter.Float64Counter(
+		"http_request_duration_seconds_sum",
+		apimetric.WithDescription("Total accumulated request duration."),
+		apimetric.WithUnit("s"),
+	)
+
 	if err != nil {
 		panic(err)
 	}
@@ -52,13 +58,6 @@ func main() {
 		duration := time.Since(start)
 
 		requestCounter.Add(r.Context(), 1)
-
-		durationSum, _ := meter.Float64Counter(
-			"http_request_duration_seconds_sum",
-			apimetric.WithDescription("Total accumulated request duration."),
-			apimetric.WithUnit("s"),
-		)
-
 		durationSum.Add(r.Context(), duration.Seconds())
 
 		w.Write([]byte("Request processed\n"))

@@ -277,9 +277,10 @@ LIMIT %d
 }
 
 func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, error) {
+	log.Printf("Prometheus query looks like: %v", q)
 
-	log.Printf("prometheus query looks like %v", q)
-	var metricNameEq string
+	// Extract metric name and label filters
+	metricNameEq := ""
 	labelEq := map[string]string{}
 
 	for _, m := range q.Matchers {
@@ -292,6 +293,7 @@ func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries
 		}
 	}
 
+	// Convert start/end timestamps from ms to seconds
 	startMs := q.StartTimestampMs
 	endMs := q.EndTimestampMs
 	if endMs == 0 {
@@ -300,15 +302,8 @@ func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries
 	startSec := float64(startMs) / 1000.0
 	endSec := float64(endMs) / 1000.0
 
-	baseMetric := ""
-	if metricNameEq != "" {
-		switch {
-		case strings.HasSuffix(metricNameEq, "_sum"):
-			baseMetric = strings.TrimSuffix(metricNameEq, "_sum")
-		default:
-			baseMetric = metricNameEq
-		}
-	}
+	// Use full metric name (do NOT strip "_sum")
+	baseMetric := metricNameEq
 
 	// Build WHERE clause dynamically
 	where := []string{"TimeUnix >= toDateTime64(?,9) AND TimeUnix <= toDateTime64(?,9)"}
@@ -328,6 +323,7 @@ func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries
 
 	whereClause := strings.Join(where, " AND ")
 
+	// Final SQL query
 	query := fmt.Sprintf(`
 SELECT
   MetricName,
@@ -340,16 +336,14 @@ ORDER BY TimeUnix
 LIMIT %d
 `, chDatabase, chTable, whereClause, maxRows)
 
+	log.Printf("ClickHouse query: %v", query)
 
-	log.Printf("query look like %v", query)
-
+	// Execute query
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("clickhouse query: %w", err)
+		return nil, fmt.Errorf("ClickHouse query error: %w", err)
 	}
 	defer rows.Close()
-
-		
 
 	var out []*prompb.TimeSeries
 
@@ -360,20 +354,22 @@ LIMIT %d
 		var sumValue float64
 
 		if err := rows.Scan(&metricName, &attributes, &tsNS, &sumValue); err != nil {
-			log.Printf("scan error: %v", err)
+			log.Printf("row scan error: %v", err)
 			continue
 		}
 
-		log.Printf("rows data look like metricName: %v, attributes: %v, tsNS: %v, sumValue: %v", metricName, attributes, tsNS, sumValue)
+		log.Printf("row data: metricName=%v, attributes=%v, tsNS=%v, sumValue=%v",
+			metricName, attributes, tsNS, sumValue)
 
-		labels := []prompb.Label{{Name: "__name__", Value: metricName + "_sum"}}
+		// Build Prometheus labels
+		labels := []prompb.Label{{Name: "__name__", Value: metricName}}
 		for k, v := range attributes {
 			labels = append(labels, prompb.Label{Name: k, Value: v})
 		}
 
 		ts := &prompb.TimeSeries{
 			Labels:  labels,
-			Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: sumValue}},
+			Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: sumValue}}, // convert ns -> ms
 		}
 
 		out = append(out, ts)
@@ -381,4 +377,3 @@ LIMIT %d
 
 	return out, nil
 }
-
