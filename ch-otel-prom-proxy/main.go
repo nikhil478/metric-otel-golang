@@ -293,7 +293,6 @@ func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries
 		}
 	}
 
-	// Convert start/end timestamps from ms to seconds
 	startMs := q.StartTimestampMs
 	endMs := q.EndTimestampMs
 	if endMs == 0 {
@@ -302,19 +301,15 @@ func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries
 	startSec := float64(startMs) / 1000.0
 	endSec := float64(endMs) / 1000.0
 
-	// Use full metric name (do NOT strip "_sum")
-	baseMetric := metricNameEq
 
-	// Build WHERE clause dynamically
 	where := []string{"TimeUnix >= toDateTime64(?,9) AND TimeUnix <= toDateTime64(?,9)"}
 	args := []interface{}{startSec, endSec}
 
-	if baseMetric != "" {
+	if metricNameEq != "" {
 		where = append(where, "MetricName = ?")
-		args = append(args, baseMetric)
+		args = append(args, metricNameEq)
 	}
 
-	// Apply label filters from Attributes
 	for k, v := range labelEq {
 		ek := strings.ReplaceAll(k, "'", "\\'")
 		where = append(where, fmt.Sprintf("Attributes['%s'] = ?", ek))
@@ -323,7 +318,6 @@ func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries
 
 	whereClause := strings.Join(where, " AND ")
 
-	// Final SQL query
 	query := fmt.Sprintf(`
 SELECT
   MetricName,
@@ -336,9 +330,6 @@ ORDER BY TimeUnix
 LIMIT %d
 `, chDatabase, chTable, whereClause, maxRows)
 
-	log.Printf("ClickHouse query: %v", query)
-
-	// Execute query
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ClickHouse query error: %w", err)
@@ -358,10 +349,6 @@ LIMIT %d
 			continue
 		}
 
-		log.Printf("row data: metricName=%v, attributes=%v, tsNS=%v, sumValue=%v",
-			metricName, attributes, tsNS, sumValue)
-
-		// Build Prometheus labels
 		labels := []prompb.Label{{Name: "__name__", Value: metricName}}
 		for k, v := range attributes {
 			labels = append(labels, prompb.Label{Name: k, Value: v})
@@ -369,7 +356,7 @@ LIMIT %d
 
 		ts := &prompb.TimeSeries{
 			Labels:  labels,
-			Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: sumValue}}, // convert ns -> ms
+			Samples: []prompb.Sample{{Timestamp: tsNS / 1e6, Value: sumValue}},
 		}
 
 		out = append(out, ts)
