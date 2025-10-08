@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -28,6 +29,22 @@ var (
 	listenAddr   = envOr("PROXY_LISTEN", ":9364")
 	queryTimeout = envDurationOr("QUERY_TIMEOUT", 30*time.Second)
 	maxRows      = envIntOr("MAX_ROWS", 20000)
+)
+
+// retention windows (seconds)
+const (
+	rawRetentionSec  = 3 * 3600        // 3 hours
+	oneMinRetention  = 15 * 24 * 3600  // 15 days
+	fiveMinRetention = 63 * 24 * 3600  // 63 days
+	oneHourRetention = 455 * 24 * 3600 // 455 days
+)
+
+// table names (fully qualified)
+var (
+	rawTable   = "otel_metrics.otel_metrics_sum"
+	oneMinTbl  = "otel_metrics.otel_metrics_sum_1m"
+	fiveMinTbl = "otel_metrics.otel_metrics_sum_5m"
+	oneHourTbl = "otel_metrics.otel_metrics_sum_1h"
 )
 
 func envOr(k, d string) string {
@@ -279,7 +296,6 @@ LIMIT %d
 func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries, error) {
 	log.Printf("Prometheus query looks like: %v", q)
 
-	// Extract metric name and label filters
 	metricNameEq := ""
 	labelEq := map[string]string{}
 
@@ -301,43 +317,90 @@ func processQuerySum(ctx context.Context, q *prompb.Query) ([]*prompb.TimeSeries
 	startSec := float64(startMs) / 1000.0
 	endSec := float64(endMs) / 1000.0
 
+	nowSec := float64(time.Now().Unix())
 
-	where := []string{"TimeUnix >= toDateTime64(?,9) AND TimeUnix <= toDateTime64(?,9)"}
-	args := []interface{}{startSec, endSec}
+	rawCut := nowSec - rawRetentionSec
+	oneMinCut := nowSec - oneMinRetention
+	fiveMinCut := nowSec - fiveMinRetention
 
-	if metricNameEq != "" {
-		where = append(where, "MetricName = ?")
-		args = append(args, metricNameEq)
+	type segment struct {
+		table string
+		from  float64
+		to    float64
 	}
 
+	segments := []segment{}
+	addIf := func(tbl string, s, e float64) {
+		if s < e && e > startSec && s < endSec {
+			s2 := math.Max(s, startSec)
+			e2 := math.Min(e, endSec)
+			if s2 < e2 {
+				segments = append(segments, segment{table: tbl, from: s2, to: e2})
+			}
+		}
+	}
+
+	addIf(rawTable, math.Max(startSec, rawCut), endSec)                           
+	addIf(oneMinTbl, math.Max(startSec, oneMinCut), math.Min(endSec, rawCut))      
+	addIf(fiveMinTbl, math.Max(startSec, fiveMinCut), math.Min(endSec, oneMinCut))
+	addIf(oneHourTbl, startSec, math.Min(endSec, fiveMinCut))                      
+
+	if len(segments) == 0 {
+		return nil, nil
+	}
+
+	labelWhereParts := []string{}
+	labelArgs := []interface{}{}
+	if metricNameEq != "" {
+		labelWhereParts = append(labelWhereParts, "MetricName = ?")
+		labelArgs = append(labelArgs, metricNameEq)
+	}
 	for k, v := range labelEq {
 		ek := strings.ReplaceAll(k, "'", "\\'")
-		where = append(where, fmt.Sprintf("Attributes['%s'] = ?", ek))
-		args = append(args, v)
+		labelWhereParts = append(labelWhereParts, fmt.Sprintf("Attributes['%s'] = ?", ek))
+		labelArgs = append(labelArgs, v)
+	}
+	labelWhere := ""
+	if len(labelWhereParts) > 0 {
+		labelWhere = " AND " + strings.Join(labelWhereParts, " AND ")
 	}
 
-	whereClause := strings.Join(where, " AND ")
+	selects := make([]string, 0, len(segments))
+	args := []interface{}{}
 
-	query := fmt.Sprintf(`
+	for _, s := range segments {
+		valueExpr := "SumValue"
+		if s.table == rawTable {
+			valueExpr = "Value AS SumValue"
+		}
+
+		segWhere := "TimeUnix >= toDateTime64(?,9) AND TimeUnix < toDateTime64(?,9)"
+		fullWhere := segWhere + labelWhere
+
+		qStr := fmt.Sprintf(`
 SELECT
   MetricName,
   Attributes,
-  toUnixTimestamp64Nano(TimeUnix) AS ts_ns,
-  Value AS SumValue
-FROM %s.%s
+  toUnixTimestamp64(TimeUnix) AS ts_ns,
+  %s
+FROM %s
 WHERE %s
-ORDER BY TimeUnix
-LIMIT %d
-`, chDatabase, chTable, whereClause, maxRows)
+`, valueExpr, s.table, fullWhere)
 
-	rows, err := db.QueryContext(ctx, query, args...)
+		selects = append(selects, qStr)
+		args = append(args, s.from, s.to)
+		args = append(args, labelArgs...)
+	}
+
+	unionQuery := strings.Join(selects, "\nUNION ALL\n") + fmt.Sprintf("\nORDER BY ts_ns\nLIMIT %d", maxRows)
+
+	rows, err := db.QueryContext(ctx, unionQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ClickHouse query error: %w", err)
 	}
 	defer rows.Close()
 
 	var out []*prompb.TimeSeries
-
 	for rows.Next() {
 		var metricName string
 		var attributes map[string]string
@@ -360,6 +423,9 @@ LIMIT %d
 		}
 
 		out = append(out, ts)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return out, nil

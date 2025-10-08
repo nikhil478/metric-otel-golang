@@ -5,13 +5,26 @@ services:
     image: clickhouse/clickhouse-server:latest
     container_name: clickhouse-server
     ports:
-      - "8123:8123"
-      - "9000:9000"
-      - "9363:9363"
+      - "8123:8123"  
+      - "9000:9000"   
+      - "9363:9363"   
     volumes:
       - ./clickhouse/otel-user.xml:/etc/clickhouse-server/users.d/otel-user.xml:ro
       - ./clickhouse/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml
+      - ./clickhouse/init:/init                  
       - clickhouse-data:/var/lib/clickhouse
+    entrypoint: >
+      /bin/bash -c "
+      /entrypoint.sh clickhouse-server &
+      # wait for ClickHouse to accept connections
+      until clickhouse-client --host localhost --query='SELECT 1' &>/dev/null; do
+        echo 'Waiting for ClickHouse to start...';
+        sleep 2;
+      done;
+      echo 'Running initialization SQL...';
+      clickhouse-client --host localhost --multiquery < /init/init.sql;
+      wait
+      "
     networks:
       - otel-network
 
@@ -34,15 +47,15 @@ services:
     container_name: otel-collector
     command: ["--config=/etc/otelcol/config.yaml"]
     ports:
-      - "4317:4317"
-      - "4318:4318"
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
     volumes:
       - ./otel-collector/collector-config.yaml:/etc/otelcol/config.yaml
-    networks:
-      - otel-network
     depends_on:
       clickhouse-server:
         condition: service_started
+    networks:
+      - otel-network
 
   prometheus:
     image: prom/prometheus:latest
@@ -51,14 +64,15 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    networks:
-      - otel-network
     depends_on:
       ch-otel-prom-proxy:
         condition: service_started
+    networks:
+      - otel-network
+
 volumes:
   clickhouse-data:
-  
+
 networks:
   otel-network:
     driver: bridge
