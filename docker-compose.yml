@@ -13,7 +13,7 @@ services:
       - ./clickhouse/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml
       - ./clickhouse/init:/init                  
       - clickhouse-data:/var/lib/clickhouse
-    entrypoint: >
+    entrypoint: |
       /bin/bash -c "
       /entrypoint.sh clickhouse-server &
       # wait for ClickHouse to accept connections
