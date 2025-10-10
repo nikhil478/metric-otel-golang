@@ -23,9 +23,6 @@ services:
     environment:
       CLICKHOUSE_HOST: clickhouse-server
       CLICKHOUSE_PORT: 9000
-    depends_on:
-      clickhouse-server:
-        condition: service_started
     networks:
       - otel-network
 
@@ -40,9 +37,6 @@ services:
       - ./otel-collector/collector-config.yaml:/etc/otelcol/config.yaml
     networks:
       - otel-network
-    depends_on:
-      clickhouse-server:
-        condition: service_started
 
   prometheus:
     image: prom/prometheus:latest
@@ -53,9 +47,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     networks:
       - otel-network
-    depends_on:
-      ch-otel-prom-proxy:
-        condition: service_started
+
 volumes:
   clickhouse-data:
   
