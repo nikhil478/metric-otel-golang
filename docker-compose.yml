@@ -16,38 +16,38 @@ services:
     networks:
       - otel-network
 
-  # ch-otel-prom-proxy:
-  #   image: ch-otel-prom-proxy:latest
-  #   container_name: ch-otel-prom-proxy
-  #   ports:
-  #     - "9364:9364"
-  #   environment:
-  #     CLICKHOUSE_HOST: clickhouse-server
-  #     CLICKHOUSE_PORT: 9000
-  #   networks:
-  #     - otel-network
+  ch-otel-prom-proxy:
+    image: ch-otel-prom-proxy:latest
+    container_name: ch-otel-prom-proxy
+    ports:
+      - "9364:9364"
+    environment:
+      CLICKHOUSE_HOST: clickhouse-server
+      CLICKHOUSE_PORT: 9000
+    networks:
+      - otel-network
 
-  # otel-collector:
-  #   image: otel/opentelemetry-collector-contrib:latest
-  #   container_name: otel-collector
-  #   command: ["--config=/etc/otelcol/config.yaml"]
-  #   ports:
-  #     - "4317:4317"
-  #     - "4318:4318"
-  #   volumes:
-  #     - ./otel-collector/collector-config.yaml:/etc/otelcol/config.yaml
-  #   networks:
-  #     - otel-network
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./otel-collector/collector-config.yaml:/etc/otelcol/config.yaml
+    networks:
+      - otel-network
 
-  # prometheus:
-  #   image: prom/prometheus:latest
-  #   container_name: prometheus
-  #   ports:
-  #     - "9090:9090"
-  #   volumes:
-  #     - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-  #   networks:
-  #     - otel-network
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - otel-network
 
 volumes:
   clickhouse-data:

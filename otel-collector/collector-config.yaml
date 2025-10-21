@@ -16,12 +16,10 @@ exporters:
     username: "otel_user"
     password: "otel_pass"
     async_insert: true
-    create_schema: true
+    create_schema: false       # Tables are manually created
+    metrics_table_name: "otel_metrics_all"  # Raw table
 
 service:
-  # telemetry:
-  #     logs:
-  #       level: debug
   pipelines:
     metrics:
       receivers: [otlp]
